@@ -2,7 +2,6 @@
 #include <iostream>
 #include <string>
 #include <stdexcept>
-#include <windows.h>
 using namespace std;
 inline void limpiarPantalla() {
     cout<<"------------------------------------------------------------"<<endl;

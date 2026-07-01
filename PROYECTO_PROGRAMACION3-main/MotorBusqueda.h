@@ -1,4 +1,5 @@
 #pragma once
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -10,10 +11,13 @@
 #include <future>
 #include <chrono>
 #include <thread>
+#include <memory>
+
 #include "SuffixTree.h"
 
 using namespace std;
 using namespace std::chrono;
+
 // ── Índices de columnas del CSV de Wikipedia ──────────────────────────────────
 static constexpr int COL_ANIO      = 0;
 static constexpr int COL_TITULO    = 1;
@@ -34,10 +38,11 @@ struct Pelicula {
     vector<string> generos;
 };
 
+
 // ── Parsear una línea CSV respetando comas dentro de comillas ─────────────────
-inline std::vector<std::string> parsearLinea(const std::string& linea) {
-    std::vector<std::string> fila;
-    std::string celda;
+inline vector<string> parsearLinea(const string& linea) {
+    vector<string> fila;
+    string celda;
     bool en_comillas = false;
 
     for (size_t i = 0; i < linea.size(); i++) {
@@ -47,10 +52,9 @@ inline std::vector<std::string> parsearLinea(const std::string& linea) {
             // Comilla doble escapada ("") dentro de campo
             if (en_comillas && i + 1 < linea.size() && linea[i + 1] == '"') {
                 celda += '"';
-                i++; // saltar la segunda comilla
+                i++;
             } else {
                 en_comillas = !en_comillas;
-                // NO agregamos la comilla a la celda
             }
         } else if (c == ',' && !en_comillas) {
             fila.push_back(celda);
@@ -59,71 +63,96 @@ inline std::vector<std::string> parsearLinea(const std::string& linea) {
             celda += c;
         }
     }
-    fila.push_back(celda); // última celda
+
+    fila.push_back(celda);
     return fila;
 }
 
-inline vector<string> dividir( string& texto) {
+
+// ── Divide campos separados por coma: directores, actores, géneros ────────────
+inline vector<string> dividir(string& texto) {
     vector<string> fila;
     string celda;
-    if (texto.size() >= 2 && texto.front() == '"' && texto.back() == '"')
+
+    if (texto.size() >= 2 && texto.front() == '"' && texto.back() == '"') {
         texto = texto.substr(1, texto.size() - 2);
+    }
 
     for (char c : texto) {
         if (c == ',') {
-            // trim antes de guardar
             size_t ini = celda.find_first_not_of(" \t");
             size_t fin = celda.find_last_not_of(" \t");
-            if (ini != string::npos)
+
+            if (ini != string::npos) {
                 fila.push_back(celda.substr(ini, fin - ini + 1));
-            else
-                fila.push_back("unknown"); // celda solo espacios
+            } else {
+                fila.push_back("unknown");
+            }
+
             celda.clear();
         } else {
             celda += c;
         }
     }
-    // última celda
+
     size_t ini = celda.find_first_not_of(" \t");
     size_t fin = celda.find_last_not_of(" \t");
-    if (ini != string::npos)
+
+    if (ini != string::npos) {
         fila.push_back(celda.substr(ini, fin - ini + 1));
+    } else if (!celda.empty()) {
+        fila.push_back("unknown");
+    }
+
     return fila;
 }
 
-// ── Limpieza: minúsculas + eliminar puntuación especial ──────────────────────
-inline std::string limpiar(std::string texto) {
-    // Minúsculas
-    std::transform(texto.begin(), texto.end(), texto.begin(),
-                   [](unsigned char c){ return std::tolower(c); });
 
-    // Eliminar: . , ( ) ! ? ; : " ' - _ / \ | [ ] { } * # @ ^ ~ ` + = < > %
-    const std::string descartados = ".,()!?;:\"'\\-_/|[]{}*#@^~`+=<>%";
-    std::string resultado;
+// ── Limpieza: minúsculas + eliminar puntuación especial ───────────────────────
+inline string limpiar(string texto) {
+    transform(texto.begin(), texto.end(), texto.begin(),
+              [](unsigned char c) {
+                  return tolower(c);
+              });
+
+    const string descartados = ".,()!?;:\"'\\-_/|[]{}*#@^~`+=<>%";
+    string resultado;
     resultado.reserve(texto.size());
+
     for (char c : texto) {
-        if (descartados.find(c) == std::string::npos)
+        if (descartados.find(c) == string::npos) {
             resultado += c;
+        }
     }
+
     return resultado;
 }
 
-// ── Tokenización: divide string limpio en palabras ───────────────────────────
-inline std::vector<std::string> tokenizar(std::string texto) {
+
+// ── Tokenización: divide string limpio en palabras ────────────────────────────
+inline vector<string> tokenizar(string texto) {
     texto = limpiar(texto);
-    std::vector<std::string> tokens;
-    std::istringstream ss(texto);
-    std::string palabra;
+
+    vector<string> tokens;
+    istringstream ss(texto);
+    string palabra;
+
     while (ss >> palabra) {
-        if (!palabra.empty())
+        if (!palabra.empty()) {
             tokens.push_back(palabra);
+        }
     }
+
     return tokens;
 }
 
-// detectar si una línea empieza con un año (4 dígitos seguidos de coma)
+
+// ── Detecta si una línea empieza con un año: 4 dígitos + coma ─────────────────
 inline bool esInicioNuevaPelicula(const string& linea) {
-    if (linea.size() < 5) return false;
+    if (linea.size() < 5) {
+        return false;
+    }
+
     return isdigit(linea[0]) &&
            isdigit(linea[1]) &&
            isdigit(linea[2]) &&
@@ -131,7 +160,9 @@ inline bool esInicioNuevaPelicula(const string& linea) {
            linea[4] == ',';
 }
 
-// ── Carga el CSV y devuelve vector de Pelicula ────────────────────────────────
+
+// ── Carga el CSV y devuelve unordered_map<int, Pelicula> ──────────────────────
+// Programación paralela: divide las líneas completas entre varios hilos.
 inline unordered_map<int, Pelicula> cargarCSV(const string& ruta = "wiki_movie_plots_deduped_final.csv") {
     auto inic = high_resolution_clock::now();
 
@@ -148,73 +179,96 @@ inline unordered_map<int, Pelicula> cargarCSV(const string& ruta = "wiki_movie_p
     vector<string> lineasCompletas;
 
     while (getline(archivo, linea)) {
-        if (primeraLinea) { primeraLinea = false; continue; }
-        if (linea.empty()) continue;
+        if (primeraLinea) {
+            primeraLinea = false;
+            continue;
+        }
+
+        if (linea.empty()) {
+            continue;
+        }
 
         string lineaCompleta = linea;
+
         while (true) {
             streampos posicion = archivo.tellg();
             string siguiente;
-            if (!getline(archivo, siguiente)) break;
+
+            if (!getline(archivo, siguiente)) {
+                break;
+            }
 
             if (esInicioNuevaPelicula(siguiente)) {
                 archivo.seekg(posicion);
                 break;
             }
+
             lineaCompleta += "\n" + siguiente;
         }
+
         lineasCompletas.push_back(move(lineaCompleta));
     }
+
     archivo.close();
 
     unsigned int numHilos = thread::hardware_concurrency();
-    if (numHilos == 0) numHilos = 4; // Por seguridad si no detecta ninguno
+
+    if (numHilos == 0) {
+        numHilos = 4;
+    }
 
     size_t totalPeliculas = lineasCompletas.size();
-    size_t tamanoChunk = totalPeliculas / numHilos;
 
-    // Aquí guardaremos las promesas/futuros de cada hilo
+    if (totalPeliculas == 0) {
+        return catalogo;
+    }
+
+    numHilos = min<unsigned int>(numHilos, totalPeliculas);
+
+    size_t tamanoChunk = totalPeliculas / numHilos;
+    size_t resto = totalPeliculas % numHilos;
+
     vector<future<vector<Pelicula>>> futuros;
 
-    for (unsigned int i = 0; i < numHilos; ++i) {
-        size_t inicio = i * tamanoChunk;
-        // El último hilo se asegura de llevarse el residuo de la división
-        size_t fin = (i == numHilos - 1) ? totalPeliculas : inicio + tamanoChunk;
+    size_t inicio = 0;
 
-        // Lanzamos la tarea asíncrona en un hilo separado
+    for (unsigned int i = 0; i < numHilos; ++i) {
+        size_t fin = inicio + tamanoChunk + (i < resto ? 1 : 0);
+
         futuros.push_back(async(launch::async, [inicio, fin, &lineasCompletas]() {
             vector<Pelicula> peliculasLocales;
             peliculasLocales.reserve(fin - inicio);
 
             for (size_t j = inicio; j < fin; ++j) {
-                // Cada hilo parsea su fila de forma independiente
                 vector<string> fila = parsearLinea(lineasCompletas[j]);
 
                 Pelicula p;
-                // Usamos 'j' como ID único secuencial (reemplaza a catalogo.size())
+
                 p.id       = static_cast<int>(j);
-                p.anio     = fila.size() > COL_ANIO      ? fila[COL_ANIO]      : "unknown";
-                p.titulo   = fila.size() > COL_TITULO    ? fila[COL_TITULO]    : "unknown";
-                p.sinopsis = fila.size() > COL_SINOPSIS  ? fila[COL_SINOPSIS]  : "unknown";
+                p.anio     = fila.size() > COL_ANIO     ? fila[COL_ANIO]     : "unknown";
+                p.titulo   = fila.size() > COL_TITULO   ? fila[COL_TITULO]   : "unknown";
+                p.sinopsis = fila.size() > COL_SINOPSIS ? fila[COL_SINOPSIS] : "unknown";
 
                 string director = fila.size() > COL_DIRECTOR ? fila[COL_DIRECTOR] : "unknown";
                 string cast     = fila.size() > COL_CAST     ? fila[COL_CAST]     : "unknown";
                 string genero   = fila.size() > COL_GENERO   ? fila[COL_GENERO]   : "unknown";
 
-                // Modificar variables locales es 100% seguro entre hilos
                 p.directores = director != "unknown" ? dividir(director) : vector<string>{"unknown"};
                 p.actores    = cast     != "unknown" ? dividir(cast)     : vector<string>{"unknown"};
                 p.generos    = genero   != "unknown" ? dividir(genero)   : vector<string>{"unknown"};
 
                 peliculasLocales.push_back(move(p));
             }
+
             return peliculasLocales;
         }));
+
+        inicio = fin;
     }
 
     for (auto& f : futuros) {
-        // f.get() bloquea temporalmente hasta que el hilo en cuestión termine y entrega su vector
         vector<Pelicula> subLista = f.get();
+
         for (auto& p : subLista) {
             catalogo[p.id] = move(p);
         }
@@ -224,8 +278,6 @@ inline unordered_map<int, Pelicula> cargarCSV(const string& ruta = "wiki_movie_p
          << " peliculas cargadas EN PARALELO desde \"" << ruta << "\"\n";
 
     auto fin = high_resolution_clock::now();
-
-    // Calcular duración en milisegundos
     auto duracion = duration_cast<milliseconds>(fin - inic);
 
     cout << "Tiempo: " << duracion.count() << " ms" << endl;
@@ -233,7 +285,9 @@ inline unordered_map<int, Pelicula> cargarCSV(const string& ruta = "wiki_movie_p
     return catalogo;
 }
 
+
 // ── Búsqueda por token en título y sinopsis ───────────────────────────────────
+// Esta búsqueda queda como alternativa por recorrido paralelo.
 inline vector<Pelicula> buscarPorPalabra(
     const unordered_map<int, Pelicula>& catalogo,
     const string& consulta
@@ -243,15 +297,19 @@ inline vector<Pelicula> buscarPorPalabra(
     vector<string> tokensConsulta = tokenizar(consulta);
     vector<const Pelicula*> todasLasPeliculas;
 
-    for (const auto& par : catalogo)
+    for (const auto& par : catalogo) {
         todasLasPeliculas.push_back(&par.second);
+    }
 
-    if (todasLasPeliculas.empty())
+    if (todasLasPeliculas.empty()) {
         return {};
+    }
 
-    unsigned int numHilos = std::thread::hardware_concurrency();
-    if (numHilos == 0)
+    unsigned int numHilos = thread::hardware_concurrency();
+
+    if (numHilos == 0) {
         numHilos = 4;
+    }
 
     numHilos = min<unsigned int>(numHilos, todasLasPeliculas.size());
 
@@ -265,16 +323,14 @@ inline vector<Pelicula> buscarPorPalabra(
     for (unsigned int i = 0; i < numHilos; ++i) {
         size_t fin = inicio + tamanoChunk + (i < resto ? 1 : 0);
 
-        futuros.push_back(std::async(std::launch::async,
+        futuros.push_back(async(launch::async,
             [inicio, fin, &todasLasPeliculas, &tokensConsulta]() {
-
                 vector<Pelicula> resultadosLocales;
 
                 for (size_t j = inicio; j < fin; ++j) {
                     const Pelicula& p = *todasLasPeliculas[j];
                     bool encontrado = false;
 
-                    // Buscar en el título
                     vector<string> tokensTitulo = tokenizar(p.titulo);
 
                     for (const auto& palabra : tokensTitulo) {
@@ -285,14 +341,16 @@ inline vector<Pelicula> buscarPorPalabra(
                                 break;
                             }
                         }
-                        if (encontrado)
+
+                        if (encontrado) {
                             break;
+                        }
                     }
 
-                    if (encontrado)
+                    if (encontrado) {
                         continue;
+                    }
 
-                    // Buscar en la sinopsis
                     vector<string> tokensSinopsis = tokenizar(p.sinopsis);
 
                     for (const auto& palabra : tokensSinopsis) {
@@ -303,13 +361,16 @@ inline vector<Pelicula> buscarPorPalabra(
                                 break;
                             }
                         }
-                        if (encontrado)
+
+                        if (encontrado) {
                             break;
+                        }
                     }
                 }
 
                 return resultadosLocales;
-            }));
+            }
+        ));
 
         inicio = fin;
     }
@@ -322,13 +383,14 @@ inline vector<Pelicula> buscarPorPalabra(
     }
 
     auto fin = high_resolution_clock::now();
-
-    // Calcular duración en milisegundos
     auto duracion = duration_cast<milliseconds>(fin - inic);
 
     cout << "Tiempo: " << duracion.count() << " ms" << endl;
+
     return resultados;
 }
+
+
 // ── Búsqueda por tag: director, casting o género ──────────────────────────────
 inline vector<Pelicula> buscarPorTag(
     const unordered_map<int, Pelicula>& catalogo,
@@ -336,89 +398,119 @@ inline vector<Pelicula> buscarPorTag(
 ) {
     vector<string> tokensConsulta = tokenizar(consulta);
     vector<Pelicula> resultados;
-    for (const auto& par : catalogo)
-    {
+
+    for (const auto& par : catalogo) {
         const Pelicula& p = par.second;
         bool encontrado = false;
+
         // Buscar en directores
         for (const auto& director : p.directores) {
             vector<string> tokensDirector = tokenizar(director);
+
             for (const auto& palabra : tokensDirector) {
                 for (const auto& token : tokensConsulta) {
-                    if (palabra==token) {
+                    if (palabra == token) {
                         resultados.push_back(p);
                         encontrado = true;
                         break;
                     }
                 }
+
                 if (encontrado) {
                     break;
                 }
             }
+
             if (encontrado) {
                 break;
             }
         }
+
         if (encontrado) {
             continue;
         }
+
         // Buscar en actores / casting
         for (const auto& actor : p.actores) {
             vector<string> tokensActor = tokenizar(actor);
+
             for (const auto& palabra : tokensActor) {
                 for (const auto& token : tokensConsulta) {
-                    if (palabra==token) {
+                    if (palabra == token) {
                         resultados.push_back(p);
                         encontrado = true;
                         break;
                     }
                 }
+
                 if (encontrado) {
                     break;
                 }
             }
+
             if (encontrado) {
                 break;
             }
         }
+
         if (encontrado) {
             continue;
         }
+
         // Buscar en géneros
         for (const auto& genero : p.generos) {
             vector<string> tokensGenero = tokenizar(genero);
+
             for (const auto& palabra : tokensGenero) {
                 for (const auto& token : tokensConsulta) {
-                    if (palabra==token) {
+                    if (palabra == token) {
                         resultados.push_back(p);
                         encontrado = true;
                         break;
                     }
                 }
+
                 if (encontrado) {
                     break;
                 }
             }
+
             if (encontrado) {
                 break;
             }
         }
     }
+
     return resultados;
 }
-inline vector<Pelicula> top5(const vector<Pelicula>& resultados,
-                              const string& consulta) {
-    vector<string> tokens = tokenizar(consulta);
 
-    vector<pair<int, Pelicula>> conteo;
 
-    for (const auto& p : resultados) {
+// ─────────────────────────────────────────────────────────────────────────────
+// PATRÓN STRATEGY
+// RankingStrategy permite cambiar el algoritmo de importancia sin tocar top5.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class RankingStrategy {
+public:
+    virtual int calcularScore(const Pelicula& p, const string& consulta) const = 0;
+    virtual ~RankingStrategy() = default;
+};
+
+
+class RankingPorRelevancia : public RankingStrategy {
+public:
+    int calcularScore(const Pelicula& p, const string& consulta) const override {
+        vector<string> tokens = tokenizar(consulta);
         int score = 0;
 
-        // título — peso 100
-        for (const auto& t : tokenizar(p.titulo))
-            for (const auto& token : tokens)
-                if (t.find(token) != string::npos) score += 100;
+        // Título — peso 100
+        for (const auto& t : tokenizar(p.titulo)) {
+            for (const auto& token : tokens) {
+                if (t.find(token) != string::npos) {
+                    score += 100;
+                }
+            }
+        }
 
         // Géneros — peso 50
         for (const auto& genero : p.generos) {
@@ -431,23 +523,52 @@ inline vector<Pelicula> top5(const vector<Pelicula>& resultados,
             }
         }
 
-        // directores — peso 10
-        for (const auto& d : p.directores)
-            for (const auto& t : tokenizar(d))
-                for (const auto& token : tokens)
-                    if (t.find(token) != string::npos) score += 10;
+        // Directores — peso 10
+        for (const auto& d : p.directores) {
+            for (const auto& t : tokenizar(d)) {
+                for (const auto& token : tokens) {
+                    if (t.find(token) != string::npos) {
+                        score += 10;
+                    }
+                }
+            }
+        }
 
-        // actores — peso 10
-        for (const auto& a : p.actores)
-            for (const auto& t : tokenizar(a))
-                for (const auto& token : tokens)
-                    if (t.find(token) != string::npos) score += 10;
+        // Actores — peso 10
+        for (const auto& a : p.actores) {
+            for (const auto& t : tokenizar(a)) {
+                for (const auto& token : tokens) {
+                    if (t.find(token) != string::npos) {
+                        score += 10;
+                    }
+                }
+            }
+        }
 
-        // sinopsis — peso 1
-        for (const auto& t : tokenizar(p.sinopsis))
-            for (const auto& token : tokens)
-                if (t.find(token) != string::npos) score += 1;
+        // Sinopsis — peso 1
+        for (const auto& t : tokenizar(p.sinopsis)) {
+            for (const auto& token : tokens) {
+                if (t.find(token) != string::npos) {
+                    score += 1;
+                }
+            }
+        }
 
+        return score;
+    }
+};
+
+
+// ── Ranking de resultados: mantiene tu top5 actual, pero usando Strategy ──────
+inline vector<Pelicula> top5(
+    const vector<Pelicula>& resultados,
+    const string& consulta
+) {
+    RankingPorRelevancia ranking;
+    vector<pair<int, Pelicula>> conteo;
+
+    for (const auto& p : resultados) {
+        int score = ranking.calcularScore(p, consulta);
         conteo.push_back({score, p});
     }
 
@@ -457,56 +578,141 @@ inline vector<Pelicula> top5(const vector<Pelicula>& resultados,
          });
 
     vector<Pelicula> resultado;
-    int limite = min(5, (int)conteo.size());
-    for (int i = 0; i < limite; i++)
+    int limite = min(5, static_cast<int>(conteo.size()));
+
+    for (int i = 0; i < limite; i++) {
         resultado.push_back(conteo[i].second);
+    }
 
     return resultado;
 }
 
-inline void indexarCatalogo(const unordered_map<int, Pelicula>& catalogo, SuffixTree<int>& arbol) {
+
+// ── Indexación del catálogo en el árbol de sufijos ────────────────────────────
+inline void indexarCatalogo(
+    const unordered_map<int, Pelicula>& catalogo,
+    SuffixTree<int>& arbol
+) {
     for (const auto& par : catalogo) {
         const Pelicula& p = par.second;
 
-        // Campos de alta prioridad (Búsqueda parcial por sufijos activa)
-        for (const auto& t : tokenizar(p.titulo))     arbol.insertar(t, p.id);
-        for (const auto& g : p.generos)
-            for (const auto& t : tokenizar(g))       arbol.insertar(t, p.id);
-        for (const auto& d : p.directores)
-            for (const auto& t : tokenizar(d))       arbol.insertar(t, p.id);
-        for (const auto& a : p.actores)
-            for (const auto& t : tokenizar(a))       arbol.insertar(t, p.id);
+        // Campos de alta prioridad: búsqueda parcial por sufijos activa
+        for (const auto& t : tokenizar(p.titulo)) {
+            arbol.insertar(t, p.id);
+        }
 
-        // Sinopsis (Campo masivo: insertamos solo palabras completas)
-        // Esto reduce el uso de memoria y nodos del árbol en un 85%
-        for (const auto& t : tokenizar(p.sinopsis))   arbol.insertarPalabraCompleta(t, p.id);
+        for (const auto& g : p.generos) {
+            for (const auto& t : tokenizar(g)) {
+                arbol.insertar(t, p.id);
+            }
+        }
+
+        for (const auto& d : p.directores) {
+            for (const auto& t : tokenizar(d)) {
+                arbol.insertar(t, p.id);
+            }
+        }
+
+        for (const auto& a : p.actores) {
+            for (const auto& t : tokenizar(a)) {
+                arbol.insertar(t, p.id);
+            }
+        }
+
+        // Sinopsis: se inserta palabra completa para controlar memoria.
+        // Esto mantiene el programa más estable con un CSV grande.
+        for (const auto& t : tokenizar(p.sinopsis)) {
+            arbol.insertarPalabraCompleta(t, p.id);
+        }
     }
 }
 
-// ── 2. Busca eficientemente usando el árbol en lugar de un bucle 'for' ──────
-inline vector<Pelicula> buscarConSuffixTree(const SuffixTree<int>& arbol, const unordered_map<int, Pelicula>& catalogo, const string& consulta) {
+
+// ── Búsqueda eficiente usando el árbol de sufijos ─────────────────────────────
+inline vector<Pelicula> buscarConSuffixTree(
+    const SuffixTree<int>& arbol,
+    const unordered_map<int, Pelicula>& catalogo,
+    const string& consulta
+) {
     vector<Pelicula> resultados;
     vector<string> tokensConsulta = tokenizar(consulta);
-    if (tokensConsulta.empty()) return resultados;
+
+    if (tokensConsulta.empty()) {
+        return resultados;
+    }
 
     vector<int> todosLosIds;
-    // Buscamos los IDs asociados a cada término de la consulta en el árbol
+
     for (const auto& token : tokensConsulta) {
         vector<int> idsEncontrados = arbol.buscar(token);
         todosLosIds.insert(todosLosIds.end(), idsEncontrados.begin(), idsEncontrados.end());
     }
 
-    // Eliminamos IDs duplicados (por si una película coincide en múltiples campos)
     sort(todosLosIds.begin(), todosLosIds.end());
+
     auto ultimoIdUnico = unique(todosLosIds.begin(), todosLosIds.end());
     todosLosIds.erase(ultimoIdUnico, todosLosIds.end());
 
-    // Mapeamos los IDs de vuelta a los objetos Pelicula usando el catálogo indexado
     for (int id : todosLosIds) {
         auto it = catalogo.find(id);
+
         if (it != catalogo.end()) {
             resultados.push_back(it->second);
         }
     }
+
     return resultados;
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATRÓN FACTORY METHOD
+// BuscadorFactory crea el tipo de búsqueda sin poner if/else grandes en main.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class Buscador {
+public:
+    virtual vector<Pelicula> buscar(
+        const unordered_map<int, Pelicula>& db,
+        const SuffixTree<int>& arbol,
+        const string& consulta
+    ) const = 0;
+
+    virtual ~Buscador() = default;
+};
+
+
+class BuscadorPorTexto : public Buscador {
+public:
+    vector<Pelicula> buscar(
+        const unordered_map<int, Pelicula>& db,
+        const SuffixTree<int>& arbol,
+        const string& consulta
+    ) const override {
+        return buscarConSuffixTree(arbol, db, consulta);
+    }
+};
+
+
+class BuscadorPorTag : public Buscador {
+public:
+    vector<Pelicula> buscar(
+        const unordered_map<int, Pelicula>& db,
+        const SuffixTree<int>&,
+        const string& consulta
+    ) const override {
+        return buscarPorTag(db, consulta);
+    }
+};
+
+
+class BuscadorFactory {
+public:
+    static unique_ptr<Buscador> crearBuscador(bool esBusquedaPorTag) {
+        if (esBusquedaPorTag) {
+            return make_unique<BuscadorPorTag>();
+        }
+
+        return make_unique<BuscadorPorTexto>();
+    }
+};
