@@ -35,31 +35,42 @@ int main() {
     std::vector<int> verMasTarde;
     std::string ultimaBusqueda;
 
+    // Lista de recomendadas: se calcula UNA sola vez cada vez que se entra al
+    // menu principal, y esa MISMA lista es la que se muestra tanto en
+    // "Peliculas que te pueden interesar" (dentro del menu) como en
+    // "Ver pelicula recomendada". Asi ambas pantallas siempre coinciden.
+    std::vector<Pelicula> recomendadasActuales;
+
     // ── 5. Bucle principal ────────────────────────────────────────────────────
     while (estado != SALIR) {
         switch (estado) {
             case MENU_PRINCIPAL:
-                estado = vistaMenuPrincipal();
+                recomendadasActuales = obtenerPeliculasRecomendadas(db, likes);
+                estado = vistaMenuPrincipal(db, verMasTarde, recomendadasActuales);
                 break;
 
             case BUSCAR: {
                 std::string consulta;
                 bool esBusquedaPorTag = false;
+                TipoTag tipoTag = TipoTag::GENERO; // valor por defecto, solo aplica si esBusquedaPorTag == true
 
-                estado = vistaBuscar(consulta, esBusquedaPorTag);
+                estado = vistaBuscar(consulta, esBusquedaPorTag, tipoTag);
 
                 if (!consulta.empty()) {
                     // ── PATRÓN FACTORY METHOD ────────────────────────────────
                     // La fábrica decide qué tipo de buscador crear:
-                    // - BuscadorPorTexto  -> usa el SuffixTree
-                    // - BuscadorPorTag    -> busca por director, actor o género
-                    auto buscador = BuscadorFactory::crearBuscador(esBusquedaPorTag);
+                    // - BuscadorPorTexto  -> prioriza titulo (empieza-con /
+                    //   contiene) y solo cae a sinopsis (orden aleatorio) si
+                    //   ningun titulo coincide. Ver buscarPorTextoConPrioridad.
+                    // - BuscadorPorTag    -> busca por director, actor, genero
+                    //   o anio (el campo especifico viene dado por tipoTag) y
+                    //   usa el ranking por relevancia (Strategy).
+                    // Cada Buscador ya devuelve sus resultados en el orden
+                    // final: la vista solo pagina con ResultadosPaginador
+                    // (patron Iterator), no vuelve a reordenar.
+                    auto buscador = BuscadorFactory::crearBuscador(esBusquedaPorTag, tipoTag);
 
                     resultados = buscador->buscar(db, arbolBusqueda, consulta);
-
-                    // ── PATRÓN STRATEGY ──────────────────────────────────────
-                    // top5 usa RankingPorRelevancia, que implementa RankingStrategy.
-                    resultados = top5(resultados, consulta);
 
                     ultimaBusqueda = consulta;
                 }
@@ -80,7 +91,7 @@ int main() {
                 break;
 
             case PELICULAS_RECOMENDADA:
-                estado = vistaPeliculasRecomendada(db, likes);
+                estado = vistaPeliculasRecomendada(recomendadasActuales, likes, verMasTarde);
                 break;
 
             default:

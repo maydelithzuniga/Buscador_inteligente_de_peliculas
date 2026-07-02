@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <unordered_map>
 
-#include "ConsoleUtils.h"
+#include "Consoleutils.h"
 #include "MotorBusqueda.h"
 
 enum EstadoPantalla {
@@ -20,7 +20,22 @@ enum EstadoPantalla {
 };
 
 // ── Menu Principal ────────────────────────────────────────────────────────────
-inline EstadoPantalla vistaMenuPrincipal() {
+// Muestra:
+//   - "Ver mas tarde": SOLO si el usuario ya agrego alguna pelicula a esa
+//     lista. Si esta vacia, no se imprime ni el titulo de la seccion.
+//   - "Peliculas que te pueden interesar": recibe la lista de recomendadas ya
+//     calculada por main.cpp (obtenerPeliculasRecomendadas). Es DELIBERADO
+//     que no se recalcule aca adentro: si se recalculara por separado cada
+//     vez que se entra al menu Y cada vez que se entra a "Ver pelicula
+//     recomendada", cuando no hay likes el algoritmo cae al azar y ambas
+//     pantallas mostrarian listas distintas. Al pasar la misma lista ya
+//     calculada, "que te pueden interesar" y "recomendadas" son siempre
+//     exactamente las mismas peliculas.
+inline EstadoPantalla vistaMenuPrincipal(
+    const std::unordered_map<int, Pelicula>& db,
+    const std::vector<int>& verMasTarde,
+    const std::vector<Pelicula>& recomendadas
+) {
     limpiarPantalla();
     std::cout << "========================================\n";
     std::cout << "                NETFLIX                 \n";
@@ -31,14 +46,32 @@ inline EstadoPantalla vistaMenuPrincipal() {
     std::cout << "  [4] Ver pelicula recomendada\n";
     std::cout << "  [0] Salir\n";
     std::cout << "----------------------------------------\n";
-    std::cout << "  Peliculas que te pueden interesar\n";
-    std::cout << "  -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.\n";
-    std::cout << "  1. Abre los ojos\n";
-    std::cout << "  2. El ladron de orquideas\n";
-    std::cout << "  3. The Empty Man\n";
-    std::cout << "  4. La pantera rosa\n";
-    std::cout << "  5. The Greasy Strangler\n";
-    std::cout << "----------------------------------------\n";
+
+    if (!verMasTarde.empty()) {
+        std::cout << "  Ver mas tarde\n";
+        std::cout << "  -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.\n";
+
+        for (int id : verMasTarde) {
+            auto it = db.find(id);
+            if (it != db.end()) {
+                std::cout << "  - " << it->second.titulo << "\n";
+            }
+        }
+
+        std::cout << "----------------------------------------\n";
+    }
+
+    if (!recomendadas.empty()) {
+        std::cout << "  Peliculas que te pueden interesar\n";
+        std::cout << "  -.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.\n";
+
+        int i = 1;
+        for (const auto& p : recomendadas) {
+            std::cout << "  " << i++ << ". " << p.titulo << "\n";
+        }
+
+        std::cout << "----------------------------------------\n";
+    }
 
     switch (leerOpcion(0, 4)) {
         case 1:  return BUSCAR;
@@ -49,14 +82,16 @@ inline EstadoPantalla vistaMenuPrincipal() {
     }
 }
 
-// ── Buscar — rellena 'consulta' y avisa si fue busqueda por tag ────────────────
-inline EstadoPantalla vistaBuscar(std::string& consulta, bool& buscarPorTag) {
+// ── Buscar — rellena 'consulta', avisa si fue busqueda por tag y, de serlo,
+// tambien indica en 'tipoTag' cual campo especifico eligio el usuario
+// (Director, Actor, Genero o Anio). ────────────────────────────────────────────
+inline EstadoPantalla vistaBuscar(std::string& consulta, bool& buscarPorTag, TipoTag& tipoTag) {
     limpiarPantalla();
     std::cout << "========================================\n";
     std::cout << "             BUSCAR                     \n";
     std::cout << "========================================\n";
     std::cout << "  [1] Por palabra clave\n";
-    std::cout << "  [2] Por tag: director, casting o genero\n";
+    std::cout << "  [2] Por tag: director, actor, genero o anio\n";
     std::cout << "  [0] Volver\n";
     std::cout << "----------------------------------------\n";
 
@@ -69,7 +104,34 @@ inline EstadoPantalla vistaBuscar(std::string& consulta, bool& buscarPorTag) {
     buscarPorTag = (op == 2);
 
     if (buscarPorTag) {
-        std::cout << "Ingrese director, actor o genero: ";
+        std::cout << "----------------------------------------\n";
+        std::cout << "  Buscar por tag:\n";
+        std::cout << "  [1] Director\n";
+        std::cout << "  [2] Actor\n";
+        std::cout << "  [3] Genero\n";
+        std::cout << "  [4] Anio\n";
+        std::cout << "----------------------------------------\n";
+
+        int opTag = leerOpcion(1, 4);
+
+        switch (opTag) {
+            case 1:
+                tipoTag = TipoTag::DIRECTOR;
+                std::cout << "Ingrese el nombre del director: ";
+                break;
+            case 2:
+                tipoTag = TipoTag::ACTOR;
+                std::cout << "Ingrese el nombre del actor: ";
+                break;
+            case 3:
+                tipoTag = TipoTag::GENERO;
+                std::cout << "Ingrese el genero: ";
+                break;
+            case 4:
+                tipoTag = TipoTag::ANIO;
+                std::cout << "Ingrese el anio: ";
+                break;
+        }
     } else {
         std::cout << "Ingrese palabra clave: ";
     }
@@ -117,6 +179,11 @@ public:
         } else {
             likes.push_back(idPelicula);
         }
+
+        // Persistimos el estado actual de likes en likes.txt, para que
+        // sesiones futuras puedan usar este historial si el usuario todavia
+        // no dio like a nada en esa nueva sesion (ver obtenerPeliculasRecomendadas).
+        guardarLikesEnArchivo(likes);
     }
 };
 
@@ -213,14 +280,93 @@ inline void mostrarDetallePelicula(
     }
 }
 
-// ── Resultados: muestra 5 por pagina y permite ver detalle ────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PATRÓN ITERATOR
+// Un iterador real (forward iterator): expone operator*, operator++ y
+// operator!=, sin exponer el vector interno ni el indice absoluto. Esto es
+// lo que permite recorrer la pagina actual con un range-for normal
+// (for (const auto& p : paginador) ...) igual que cualquier contenedor de
+// la STL, sin que el codigo cliente (la vista) sepa como esta almacenada
+// la coleccion por dentro.
+// ─────────────────────────────────────────────────────────────────────────────
+class ResultadosIterator {
+private:
+    const std::vector<Pelicula>* resultados;
+    size_t indice;
+
+public:
+    ResultadosIterator(const std::vector<Pelicula>* resultados, size_t indice)
+        : resultados(resultados), indice(indice) {}
+
+    const Pelicula& operator*() const { return (*resultados)[indice]; }
+    const Pelicula* operator->() const { return &(*resultados)[indice]; }
+
+    ResultadosIterator& operator++() { ++indice; return *this; }
+
+    bool operator!=(const ResultadosIterator& otro) const { return indice != otro.indice; }
+    bool operator==(const ResultadosIterator& otro) const { return indice == otro.indice; }
+};
+
+// Encapsula el recorrido pagina a pagina sobre TODOS los resultados de una
+// busqueda. Antes 'top5' recortaba a 5 resultados y la vista nunca podia
+// mostrar mas alla de esa pagina. Ahora MotorBusqueda::ordenarPorRelevancia /
+// ordenarConEstrategia devuelven TODOS los resultados ordenados, y este
+// paginador expone begin()/end() (Iterator real) para recorrer SOLO la
+// pagina actual, de a 'tamPagina' en 'tamPagina', sin que la vista maneje
+// indices absolutos a mano.
+class ResultadosPaginador {
+private:
+    const std::vector<Pelicula>& resultados;
+    int tamPagina;
+    int paginaActual = 0;
+
+public:
+    ResultadosPaginador(const std::vector<Pelicula>& resultados, int tamPagina = 5)
+        : resultados(resultados), tamPagina(tamPagina) {}
+
+    bool vacio() const { return resultados.empty(); }
+
+    int totalPaginas() const {
+        if (resultados.empty()) return 0;
+        return static_cast<int>((resultados.size() + tamPagina - 1) / tamPagina);
+    }
+
+    int numeroPaginaActual() const { return paginaActual + 1; }
+
+    bool tieneSiguiente() const { return paginaActual + 1 < totalPaginas(); }
+    bool tieneAnterior() const { return paginaActual > 0; }
+
+    void siguiente() { if (tieneSiguiente()) paginaActual++; }
+    void anterior() { if (tieneAnterior()) paginaActual--; }
+
+    int inicioPagina() const { return paginaActual * tamPagina; }
+    int finPagina() const {
+        return std::min(inicioPagina() + tamPagina, static_cast<int>(resultados.size()));
+    }
+
+    int cantidadEnPaginaActual() const { return finPagina() - inicioPagina(); }
+
+    const Pelicula& obtener(int indiceRelativo) const {
+        return resultados[inicioPagina() + indiceRelativo];
+    }
+
+    // ── Interfaz de Iterator: recorre SOLO la pagina actual ───────────────────
+    ResultadosIterator begin() const {
+        return ResultadosIterator(&resultados, static_cast<size_t>(inicioPagina()));
+    }
+
+    ResultadosIterator end() const {
+        return ResultadosIterator(&resultados, static_cast<size_t>(finPagina()));
+    }
+};
+
+// ── Resultados: recorre TODOS los resultados con ResultadosPaginador ──────────
 inline EstadoPantalla vistaResultados(
     const std::vector<Pelicula>& resultados,
     std::vector<int>& likes,
     std::vector<int>& verMasTarde
 ) {
-    int pagina = 0;
-    const int tamPagina = 5;
+    ResultadosPaginador paginador(resultados, 5);
 
     limpiarPantalla();
 
@@ -229,7 +375,7 @@ inline EstadoPantalla vistaResultados(
         std::cout << "            RESULTADOS                  \n";
         std::cout << "========================================\n";
 
-        if (resultados.empty()) {
+        if (paginador.vacio()) {
             std::cout << "  No se encontraron peliculas.\n";
             std::cout << "----------------------------------------\n";
             std::cout << "  [0] Volver al menu principal\n";
@@ -239,42 +385,55 @@ inline EstadoPantalla vistaResultados(
             return MENU_PRINCIPAL;
         }
 
-        int inicio = pagina * tamPagina;
-        int fin = std::min(inicio + tamPagina, static_cast<int>(resultados.size()));
+        int cantidad = paginador.cantidadEnPaginaActual();
 
-        for (int i = inicio; i < fin; i++) {
-            std::cout << "  [" << (i - inicio + 1) << "] "
-                      << resultados[i].titulo << "\n";
+        // Recorrido con el Iterator real (begin()/end()) en vez de indices
+        // manuales: paginador expone solo la pagina actual, sin que esta
+        // vista sepa nada del vector completo de resultados.
+        int numero = 1;
+        for (const Pelicula& p : paginador) {
+            std::cout << "  [" << numero++ << "] " << p.titulo << "\n";
         }
 
         std::cout << "----------------------------------------\n";
-        std::cout << "Pagina " << (pagina + 1) << "\n";
-        std::cout << "  [1-" << (fin - inicio) << "] Ver detalle\n";
+        std::cout << "Pagina " << paginador.numeroPaginaActual()
+                   << " de " << paginador.totalPaginas()
+                   << "  (" << resultados.size() << " resultados en total)\n";
+        std::cout << "  [1-" << cantidad << "] Ver detalle\n";
 
-        if (fin < static_cast<int>(resultados.size())) {
+        // El rango maximo de opciones valido depende de si realmente hay
+        // pagina siguiente/anterior. Antes se pedia siempre "Opcion [0-7]"
+        // aunque solo hubiera 1 resultado sin mas paginas, lo cual era
+        // confuso/incorrecto. Ahora el limite superior se calcula segun lo
+        // que efectivamente se imprime en pantalla.
+        int maxOpcion = cantidad;
+
+        if (paginador.tieneSiguiente()) {
             std::cout << "  [6] Siguientes 5\n";
+            maxOpcion = std::max(maxOpcion, 6);
         }
 
-        if (pagina > 0) {
+        if (paginador.tieneAnterior()) {
             std::cout << "  [7] Anteriores 5\n";
+            maxOpcion = std::max(maxOpcion, 7);
         }
 
         std::cout << "  [0] Volver al menu principal\n";
         std::cout << "----------------------------------------\n";
         std::cout.flush();
 
-        int op = leerOpcion(0, 7);
+        int op = leerOpcion(0, maxOpcion);
 
         if (op == 0) {
             return MENU_PRINCIPAL;
         }
 
-        if (op >= 1 && op <= fin - inicio) {
-            mostrarDetallePelicula(resultados[inicio + op - 1], likes, verMasTarde);
-        } else if (op == 6 && fin < static_cast<int>(resultados.size())) {
-            pagina++;
-        } else if (op == 7 && pagina > 0) {
-            pagina--;
+        if (op >= 1 && op <= cantidad) {
+            mostrarDetallePelicula(paginador.obtener(op - 1), likes, verMasTarde);
+        } else if (op == 6 && paginador.tieneSiguiente()) {
+            paginador.siguiente();
+        } else if (op == 7 && paginador.tieneAnterior()) {
+            paginador.anterior();
         }
     }
 }
@@ -351,71 +510,52 @@ inline EstadoPantalla vistaPeliculasLike(
 }
 
 // ── Ver pelicula recomendada ─────────────────────────────────────────────────
+// Recibe la lista de recomendadas YA CALCULADA por main.cpp (la misma que se
+// mostro en "Peliculas que te pueden interesar" del menu principal, para que
+// ambas pantallas coincidan siempre). Permite seleccionar una pelicula para
+// ver su detalle completo (titulo, director, sinopsis, Like, Ver mas tarde),
+// igual que en Resultados.
 inline EstadoPantalla vistaPeliculasRecomendada(
-    const std::unordered_map<int, Pelicula>& db,
-    const std::vector<int>& likes
+    const std::vector<Pelicula>& recomendadas,
+    std::vector<int>& likes,
+    std::vector<int>& verMasTarde
 ) {
     limpiarPantalla();
 
-    std::cout << "========================================\n";
-    std::cout << "        PELICULA RECOMENDADA            \n";
-    std::cout << "========================================\n";
+    while (true) {
+        std::cout << "========================================\n";
+        std::cout << "        PELICULAS RECOMENDADAS          \n";
+        std::cout << "========================================\n";
 
-    if (likes.empty()) {
-        std::cout << "  Todavia no hay recomendaciones.\n";
-        std::cout << "  Dale like a alguna pelicula primero.\n";
-    } else {
-        int idLike = likes.back();
-        auto itLike = db.find(idLike);
+        if (recomendadas.empty()) {
+            std::cout << "  No hay peliculas para recomendar en este momento.\n";
+            std::cout << "----------------------------------------\n";
+            std::cout << "  [0] Volver al menu principal\n";
+            std::cout << "----------------------------------------\n";
 
-        if (itLike == db.end()) {
-            std::cout << "  No se pudo generar recomendacion.\n";
-        } else {
-            const Pelicula& base = itLike->second;
-            bool encontro = false;
-
-            for (const auto& par : db) {
-                const Pelicula& candidata = par.second;
-
-                if (candidata.id == base.id) {
-                    continue;
-                }
-
-                for (const auto& gBase : base.generos) {
-                    for (const auto& gCand : candidata.generos) {
-                        if (limpiar(gBase) == limpiar(gCand) && limpiar(gBase) != "unknown") {
-                            std::cout << "  Basado en tu like a: " << base.titulo << "\n";
-                            std::cout << "----------------------------------------\n";
-                            std::cout << "  Te recomendamos:\n";
-                            std::cout << "  " << candidata.titulo
-                                      << " (" << candidata.anio << ")\n";
-                            std::cout << "  Genero similar: " << gCand << "\n";
-
-                            encontro = true;
-                            break;
-                        }
-                    }
-
-                    if (encontro) {
-                        break;
-                    }
-                }
-
-                if (encontro) {
-                    break;
-                }
-            }
-
-            if (!encontro) {
-                std::cout << "  No se encontro una pelicula similar por genero.\n";
-            }
+            leerOpcion(0, 0);
+            return MENU_PRINCIPAL;
         }
+
+        int cantidad = static_cast<int>(recomendadas.size());
+
+        for (int i = 0; i < cantidad; i++) {
+            std::cout << "  [" << (i + 1) << "] " << recomendadas[i].titulo << "\n";
+        }
+
+        std::cout << "----------------------------------------\n";
+        std::cout << "  [1-" << cantidad << "] Ver detalle\n";
+        std::cout << "  [0] Volver al menu principal\n";
+        std::cout << "----------------------------------------\n";
+        std::cout.flush();
+
+        int op = leerOpcion(0, cantidad);
+
+        if (op == 0) {
+            return MENU_PRINCIPAL;
+        }
+
+        mostrarDetallePelicula(recomendadas[op - 1], likes, verMasTarde);
+        limpiarPantalla();
     }
-
-    std::cout << "----------------------------------------\n";
-    std::cout << "  [0] Volver al menu principal\n";
-    std::cout << "----------------------------------------\n";
-
-    leerOpcion(0, 0);
-    return MENU_PRINCIPAL;
 }
