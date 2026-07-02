@@ -20,11 +20,9 @@ inline int leerOpcion(int min, int max) {
         std::string linea;
         std::getline(std::cin, linea);
 
-        // ignorar líneas vacías que dejó un Enter previo
         if (linea.empty() || linea.find_first_not_of(" \t\r\n") == std::string::npos)
             continue;
 
-        // eliminar \r en Windows
         if (!linea.empty() && linea.back() == '\r')
             linea.pop_back();
 
@@ -58,7 +56,6 @@ inline std::string leerTexto() {
         std::string texto;
         std::getline(std::cin, texto);
 
-        // eliminar \r en Windows
         if (!texto.empty() && texto.back() == '\r')
             texto.pop_back();
 
