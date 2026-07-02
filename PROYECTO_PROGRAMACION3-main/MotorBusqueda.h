@@ -48,7 +48,6 @@ inline vector<string> parsearLinea(const string& linea) {
         char c = linea[i];
 
         if (c == '"') {
-            // Comilla doble escapada ("") dentro de campo
             if (en_comillas && i + 1 < linea.size() && linea[i + 1] == '"') {
                 celda += '"';
                 i++;
@@ -382,21 +381,13 @@ inline vector<Pelicula> buscarPorPalabra(
 }
 
 
-// Declaracion adelantada: la definicion completa esta mas abajo, junto al
-// resto de las funciones que usan el Arbol de Sufijos como filtro rapido de
-// candidatos. Se declara aca arriba porque buscarPorTag() (justo debajo) ya
-// la necesita.
+
 inline vector<int> idsCandidatosPorSuffixTree(
     const SuffixTree<int>& arbol,
     const vector<string>& tokensConsulta
 );
 
-// ── Tipos de tag disponibles para la búsqueda por etiqueta ─────────────────────
-// Antes buscarPorTag mezclaba director/actor/genero en un solo criterio
-// "generico" y probaba los tres en cascada. Ahora el usuario elige de
-// antemano CUAL campo quiere consultar (Director, Actor, Genero o Anio) y la
-// busqueda se hace unicamente sobre ese campo, evitando falsos positivos
-// (ej. buscar "accion" y que combine con un director que se llame igual).
+
 enum class TipoTag {
     DIRECTOR,
     ACTOR,
@@ -404,9 +395,7 @@ enum class TipoTag {
     ANIO
 };
 
-// ── Helper: compara los tokens de un campo de la pelicula contra los tokens
-// de la consulta del usuario. Coincidencia exacta de palabra (no substring),
-// igual criterio que se usaba antes en buscarPorTag. ─────────────────────────
+
 inline bool coincideCampoTag(const vector<string>& tokensCampo, const vector<string>& tokensConsulta) {
     for (const auto& palabra : tokensCampo) {
         for (const auto& token : tokensConsulta) {
@@ -418,20 +407,7 @@ inline bool coincideCampoTag(const vector<string>& tokensCampo, const vector<str
     return false;
 }
 
-// ── Búsqueda por tag: director, actor, género o año ────────────────────────────
-// A diferencia de la version anterior (que probaba director -> actor ->
-// genero en cascada sobre el mismo texto), ahora el tipo de tag se elige
-// explicitamente en la vista y se busca UNICAMENTE en ese campo.
-//
-// Igual que en buscarPorTextoConPrioridad, el arbol se usa primero como
-// filtro rapido de candidatos (idsCandidatosPorSuffixTree). El arbol indexa
-// director/actor/genero mezclados con titulo y sinopsis en el mismo set de
-// IDs, asi que los candidatos que devuelve son un SUPERCONJUNTO de la
-// respuesta correcta (pueden venir ids que matchean por otro campo). Por
-// eso, igual que antes, se verifica el campo especifico (coincideCampoTag)
-// -la diferencia es que ahora esa verificacion se hace sobre el
-// subconjunto de candidatos del arbol, no sobre las ~34000 peliculas del
-// catalogo completo.
+
 inline vector<Pelicula> buscarPorTag(
     const unordered_map<int, Pelicula>& catalogo,
     const SuffixTree<int>& arbol,
@@ -454,9 +430,7 @@ inline vector<Pelicula> buscarPorTag(
         if (it != catalogo.end()) candidatos.push_back(&it->second);
     }
 
-    // Resguardo: si por algun motivo el arbol no devolvio candidatos (por
-    // ejemplo, el catalogo esta vacio o el token es demasiado corto), se
-    // cae al recorrido completo para no perder resultados validos.
+
     if (candidatos.empty()) {
         for (const auto& par : catalogo) candidatos.push_back(&par.second);
     }
@@ -494,7 +468,6 @@ inline vector<Pelicula> buscarPorTag(
                 break;
 
             case TipoTag::ANIO:
-                // El anio es un campo unico (no una lista), se compara igual.
                 if (coincideCampoTag(tokenizar(p.anio), tokensConsulta)) {
                     encontrado = true;
                 }
@@ -510,11 +483,6 @@ inline vector<Pelicula> buscarPorTag(
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATRÓN STRATEGY
-// RankingStrategy permite cambiar el algoritmo de importancia sin tocar top5.
-// ─────────────────────────────────────────────────────────────────────────────
-
 class RankingStrategy {
 public:
     virtual int calcularScore(const Pelicula& p, const string& consulta) const = 0;
@@ -528,7 +496,6 @@ public:
         vector<string> tokens = tokenizar(consulta);
         int score = 0;
 
-        // Título — peso 100
         for (const auto& t : tokenizar(p.titulo)) {
             for (const auto& token : tokens) {
                 if (t.find(token) != string::npos) {
@@ -537,7 +504,6 @@ public:
             }
         }
 
-        // Géneros — peso 50
         for (const auto& genero : p.generos) {
             for (const auto& palabra : tokenizar(genero)) {
                 for (const auto& token : tokens) {
@@ -548,7 +514,6 @@ public:
             }
         }
 
-        // Directores — peso 10
         for (const auto& d : p.directores) {
             for (const auto& t : tokenizar(d)) {
                 for (const auto& token : tokens) {
@@ -559,7 +524,6 @@ public:
             }
         }
 
-        // Actores — peso 10
         for (const auto& a : p.actores) {
             for (const auto& t : tokenizar(a)) {
                 for (const auto& token : tokens) {
@@ -570,7 +534,6 @@ public:
             }
         }
 
-        // Anio — peso 30 (relevante sobre todo para busqueda por tag de anio)
         for (const auto& t : tokenizar(p.anio)) {
             for (const auto& token : tokens) {
                 if (t == token) {
@@ -579,7 +542,6 @@ public:
             }
         }
 
-        // Sinopsis — peso 1
         for (const auto& t : tokenizar(p.sinopsis)) {
             for (const auto& token : tokens) {
                 if (t.find(token) != string::npos) {
@@ -593,14 +555,6 @@ public:
 };
 
 
-// ── SEGUNDA ESTRATEGIA CONCRETA ────────────────────────────────────────────────
-// Ordena priorizando el AÑO: primero coincidencia exacta de año con la
-// consulta (si la consulta trae un numero de 4 digitos), y como criterio de
-// desempate, peliculas mas recientes primero. Pensada especialmente para
-// TipoTag::ANIO, donde "relevancia por texto" no tiene mucho sentido (el
-// campo Anio es un numero, no texto libre) pero "que tan cerca esta del
-// anio buscado" si. Esta es la prueba de que RankingStrategy realmente se
-// puede intercambiar sin tocar el codigo que la usa (ordenarConEstrategia).
 class RankingPorAnio : public RankingStrategy {
 public:
     int calcularScore(const Pelicula& p, const string& consulta) const override {
@@ -610,7 +564,7 @@ public:
         try {
             anioPelicula = stoi(p.anio);
         } catch (...) {
-            return 0; // anio no numerico ("unknown", etc): al final del orden
+            return 0; 
         }
 
         for (const auto& token : tokenizar(consulta)) {
@@ -618,18 +572,17 @@ public:
                 int anioBuscado = stoi(token);
 
                 if (anioPelicula == anioBuscado) {
-                    score += 1000; // coincidencia exacta de anio: maxima prioridad
+                    score += 1000; 
                 } else {
-                    // Mientras mas cerca este del anio buscado, mayor score.
+                    
                     int distancia = abs(anioPelicula - anioBuscado);
                     score += max(0, 200 - distancia);
                 }
             } catch (...) {
-                // token no numerico: no aporta a este criterio
+                
             }
         }
 
-        // Desempate leve: peliculas mas recientes primero.
         score += anioPelicula / 100;
 
         return score;
@@ -637,15 +590,6 @@ public:
 };
 
 
-// ── Ranking de resultados: ordena TODOS por relevancia usando Strategy ────────
-// (antes 'top5' recortaba a 5 aca mismo, lo cual le quitaba a la vista la
-// posibilidad de paginar mas alla de esos 5. Ahora el corte/paginado es
-// responsabilidad de la vista -> ver ResultadosPaginador en Vistas.h)
-//
-// PATRON STRATEGY EN ACCION: esta funcion no sabe (ni le importa) que
-// estrategia concreta le pasaron; solo llama a calcularScore() de forma
-// polimorfica. Asi se puede pasar RankingPorRelevancia, RankingPorAnio, o
-// cualquier otra estrategia futura, sin cambiar una linea de este codigo.
 inline vector<Pelicula> ordenarConEstrategia(
     const vector<Pelicula>& resultados,
     const string& consulta,
@@ -672,8 +616,6 @@ inline vector<Pelicula> ordenarConEstrategia(
     return resultado;
 }
 
-// Se mantiene la firma original por compatibilidad: usa RankingPorRelevancia
-// como estrategia por defecto.
 inline vector<Pelicula> ordenarPorRelevancia(
     const vector<Pelicula>& resultados,
     const string& consulta
@@ -682,7 +624,6 @@ inline vector<Pelicula> ordenarPorRelevancia(
     return ordenarConEstrategia(resultados, consulta, estrategia);
 }
 
-// Se mantiene por compatibilidad si algo todavia espera solo los primeros 5.
 inline vector<Pelicula> top5(
     const vector<Pelicula>& resultados,
     const string& consulta
@@ -693,13 +634,6 @@ inline vector<Pelicula> top5(
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PERSISTENCIA DE LIKES
-// Cada vez que el usuario da/quita like, el vector 'likes' en memoria se
-// vuelca completo a un .txt (un id por linea). Asi, si en una sesion futura
-// el usuario todavia no dio ningun like, se puede recuperar el historial de
-// la sesion anterior para generar recomendaciones.
-// ─────────────────────────────────────────────────────────────────────────────
 static const string ARCHIVO_LIKES = "likes.txt";
 
 inline vector<int> cargarLikesDesdeArchivo(const string& ruta = ARCHIVO_LIKES) {
@@ -731,22 +665,6 @@ inline void guardarLikesEnArchivo(const vector<int>& likes, const string& ruta =
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RECOMENDACIONES
-// Algoritmo propio para "Peliculas que te pueden interesar" / "Recomendada":
-//
-//   1) Se determina la lista BASE de peliculas que le gustan al usuario:
-//        - Si hay likes en la sesion actual, se usan esos.
-//        - Si no hay likes en la sesion actual, se recurre al historial
-//          guardado en likes.txt (likes de sesiones anteriores).
-//   2) Con esa base, se buscan candidatas (que no sean ellas mismas) que
-//      compartan AL MENOS 2 generos con alguna pelicula base.
-//   3) Si ninguna candidata cumple el paso 2, se buscan candidatas que
-//      compartan el mismo actor O el mismo director con alguna base.
-//   4) Si tampoco hay coincidencias, o si nunca hubo ningun like (ni en la
-//      sesion actual ni en el historial), se muestran peliculas aleatorias.
-//   En todos los casos el resultado se limita a un TOP 5.
-// ─────────────────────────────────────────────────────────────────────────────
 inline vector<Pelicula> peliculasAleatorias(
     const unordered_map<int, Pelicula>& db,
     int cantidad = 5
@@ -769,7 +687,7 @@ inline vector<Pelicula> obtenerPeliculasRecomendadas(
     const unordered_map<int, Pelicula>& db,
     const vector<int>& likesSesion
 ) {
-    // 1) Determinar la base: likes de la sesion actual, o historial en disco.
+    
     vector<int> idsBase = likesSesion;
 
     if (idsBase.empty()) {
@@ -777,7 +695,7 @@ inline vector<Pelicula> obtenerPeliculasRecomendadas(
     }
 
     if (idsBase.empty()) {
-        // Nunca hubo ningun like: peliculas aleatorias.
+        
         return peliculasAleatorias(db, 5);
     }
 
@@ -790,7 +708,7 @@ inline vector<Pelicula> obtenerPeliculasRecomendadas(
     }
 
     if (baseMovies.empty()) {
-        // Los ids guardados ya no existen en la base de datos actual.
+        
         return peliculasAleatorias(db, 5);
     }
 
@@ -798,8 +716,8 @@ inline vector<Pelicula> obtenerPeliculasRecomendadas(
         return find(idsBase.begin(), idsBase.end(), id) != idsBase.end();
     };
 
-    // 2) Candidatas con al menos 2 generos en comun con alguna base.
-    vector<pair<int, Pelicula>> candidatosGenero; // (cantidad de generos en comun, pelicula)
+    
+    vector<pair<int, Pelicula>> candidatosGenero; 
 
     for (const auto& par : db) {
         const Pelicula& candidata = par.second;
@@ -846,7 +764,6 @@ inline vector<Pelicula> obtenerPeliculasRecomendadas(
         return resultado;
     }
 
-    // 3) Sin coincidencia de 2+ generos: buscar mismo actor o mismo director.
     vector<Pelicula> candidatosActorDirector;
 
     for (const auto& par : db) {
@@ -898,30 +815,7 @@ inline vector<Pelicula> obtenerPeliculasRecomendadas(
 }
 
 
-// ── Indexación del catálogo en el árbol de sufijos ────────────────────────────
-// IMPORTANTE: aca esta la diferencia entre "insertar" (inserta TODOS los
-// sufijos de la palabra: para "barco" inserta barco/arco/rco/co/o) e
-// "insertarPalabraCompleta" (inserta solo la palabra entera). Usar
-// insertarPalabraCompleta en todos los campos (como estaba antes) hace que
-// arbol.buscar("bar") NUNCA encuentre "barco", porque "bar" no es ninguna de
-// las palabras completas indexadas: el arbol de sufijos termina
-// funcionando, en la practica, como un simple diccionario de palabras
-// exactas, no como un buscador de sub-cadenas.
-//
-// Por eso, titulo/genero/director/actor (campos cortos) se indexan con
-// insertar() -> sufijos completos, para que buscar sub-cadenas como "bar"
-// dentro de "barco" funcione de verdad a traves del arbol.
-//
-// La Sinopsis puede tener miles de palabras por pelicula; insertar todos
-// los sufijos de cada palabra de la sinopsis de ~34000 peliculas dispara el
-// uso de memoria (cada sufijo es un nodo/rama nuevo en el arbol). Por eso
-// la sinopsis se sigue indexando por PALABRA COMPLETA (insertarPalabraCompleta):
-// el arbol encuentra rapido coincidencias de palabra completa en la
-// sinopsis, y el caso de sub-cadena suelta dentro de la sinopsis (ej. "bar"
-// como parte de una palabra que NO es la buscada como palabra completa) se
-// resuelve con un fallback en paralelo sobre el texto crudo, ver
-// buscarSustringEnSinopsisParalelo() mas abajo. Esta es una decision de
-// diseño de espacio-vs-cobertura y debe quedar documentada en el README.
+
 inline void indexarCatalogo(
     const unordered_map<int, Pelicula>& catalogo,
     SuffixTree<int>& arbol
@@ -929,9 +823,6 @@ inline void indexarCatalogo(
     for (const auto& par : catalogo) {
         const Pelicula& p = par.second;
 
-        // Campos de alta prioridad: se indexan TODOS los sufijos, asi el
-        // arbol si soporta busqueda por sub-cadena real (no solo palabra
-        // exacta) en titulo/genero/director/actor.
         for (const auto& t : tokenizar(p.titulo)) {
             arbol.insertar(t, p.id);
         }
@@ -954,8 +845,6 @@ inline void indexarCatalogo(
             }
         }
 
-        // Sinopsis: se inserta palabra completa para controlar memoria.
-        // Esto mantiene el programa más estable con un CSV grande.
         for (const auto& t : tokenizar(p.sinopsis)) {
             arbol.insertarPalabraCompleta(t, p.id);
         }
@@ -963,14 +852,6 @@ inline void indexarCatalogo(
 }
 
 
-// ── Búsqueda eficiente usando el árbol de sufijos ─────────────────────────────
-// Devuelve el conjunto de IDs candidatos para una consulta de varias
-// palabras, usando el arbol de sufijos (rapido) en vez de recorrer TODO el
-// catalogo. Semantica OR: un id entra si CUALQUIERA de los tokens de la
-// consulta aparece como sub-cadena en algun campo indexado (titulo, genero,
-// director, actor o palabra completa de sinopsis) de esa pelicula.
-// Ejemplo: "barco fantasma" -> tokens ["barco","fantasma"] -> union de
-// arbol.buscar("barco") y arbol.buscar("fantasma").
 inline vector<int> idsCandidatosPorSuffixTree(
     const SuffixTree<int>& arbol,
     const vector<string>& tokensConsulta
@@ -990,8 +871,6 @@ inline vector<int> idsCandidatosPorSuffixTree(
     return todosLosIds;
 }
 
-// Version que ademas resuelve los IDs a Pelicula (queda disponible por si
-// se necesita en algun otro lugar el resultado ya "materializado").
 inline vector<Pelicula> buscarConSuffixTree(
     const SuffixTree<int>& arbol,
     const unordered_map<int, Pelicula>& catalogo,
@@ -1014,14 +893,6 @@ inline vector<Pelicula> buscarConSuffixTree(
     return resultados;
 }
 
-// ── Fallback en PARALELO: sub-cadena suelta dentro de la Sinopsis ─────────────
-// El arbol solo indexa la sinopsis por palabra COMPLETA (ver indexarCatalogo),
-// asi que una sub-cadena que no es una palabra completa (ej. "bar" dentro de
-// "embarcaron", que no es "barco") no aparece como candidata desde el arbol.
-// Esta funcion cubre ese caso final recorriendo la sinopsis en paralelo y
-// buscando cada token como sub-cadena literal. Solo se usa cuando la
-// busqueda por arbol no encontro NADA, asi que el costo O(n) solo se paga en
-// el peor caso, no en cada busqueda.
 inline vector<Pelicula> buscarSustringEnSinopsisParalelo(
     const unordered_map<int, Pelicula>& catalogo,
     const vector<string>& tokensConsulta
@@ -1076,44 +947,7 @@ inline vector<Pelicula> buscarSustringEnSinopsisParalelo(
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Búsqueda por palabra clave con prioridad de TÍTULO sobre SINOPSIS
-// ─────────────────────────────────────────────────────────────────────────────
-// Orden exigido:
-//   1) Películas cuyo TÍTULO EMPIEZA con el texto buscado         (ej: "ba" -> "Barco...")
-//   2) Películas cuyo TÍTULO CONTIENE el texto buscado en cualquier posicion
-//      (ej: "ba" -> "El bar", "Submarino")
-//   3) SOLO SI NINGÚN título (ni por 1 ni por 2) coincide en TODO el catálogo,
-//      se busca el texto dentro de la SINOPSIS, y esos resultados se
-//      devuelven en orden ALEATORIO (no hay "mas relevante" dentro de ellos).
-// Se compara sobre texto "limpio" (minusculas, sin puntuacion) para que la
-// comparacion sea insensible a mayusculas/acentos de puntuacion.
-// ─────────────────────────────────────────────────────────────────────────────
-// Búsqueda por palabra/frase/sub-cadena, con prioridad TÍTULO > SINOPSIS.
-//
-// Ahora SI usa el Arbol de Sufijos como primer filtro: en vez de recorrer
-// las ~34000 peliculas del catalogo (O(n)) para clasificarlas, primero le
-// pide al arbol los IDs candidatos (rapido, O(largo del patron) por token) y
-// solo clasifica/ordena ESE subconjunto, ya mucho mas chico. Asi el arbol
-// cumple su proposito real: acelerar la busqueda.
-//
-// Semantica exigida:
-//   - Si se busca "barco"           -> cualquier pelicula con "barco" en
-//                                       titulo o sinopsis (sub-cadena, no
-//                                       necesita ser palabra completa).
-//   - Si se busca "barco fantasma"  -> se tokeniza en ["barco","fantasma"] y
-//                                       se devuelve la UNION (OR): peliculas
-//                                       que tengan "barco" Y/O "fantasma".
-//   - Si se busca "bar"             -> encuentra peliculas donde "bar" es
-//                                       sub-cadena de una palabra mas larga
-//                                       (ej. "barco"), no solo coincidencia
-//                                       exacta de palabra.
-//
-// Orden de prioridad (igual que antes):
-//   1) Titulo EMPIEZA con algun token de la consulta.
-//   2) Titulo CONTIENE algun token en cualquier posicion.
-//   3) Solo si NINGUN titulo coincidio: Sinopsis contiene algun token
-//      (orden aleatorio dentro de este grupo, tal como se definio original).
+
 inline vector<Pelicula> buscarPorTextoConPrioridad(
     const unordered_map<int, Pelicula>& catalogo,
     const SuffixTree<int>& arbol,
@@ -1125,7 +959,6 @@ inline vector<Pelicula> buscarPorTextoConPrioridad(
         return {};
     }
 
-    // ── PASO 1: candidatos rapidos via el arbol (union de todos los tokens) ──
     vector<int> idsCandidatos = idsCandidatosPorSuffixTree(arbol, tokensConsulta);
 
     vector<Pelicula> candidatos;
@@ -1135,7 +968,6 @@ inline vector<Pelicula> buscarPorTextoConPrioridad(
         if (it != catalogo.end()) candidatos.push_back(it->second);
     }
 
-    // ── PASO 2: clasificar SOLO los candidatos (subconjunto chico) ───────────
     vector<Pelicula> empiezaConTitulo;
     vector<Pelicula> contieneEnTitulo;
     vector<Pelicula> coincidenSinopsis;
@@ -1183,12 +1015,6 @@ inline vector<Pelicula> buscarPorTextoConPrioridad(
         return coincidenSinopsis;
     }
 
-    // ── PASO 3: fallback O(n) en paralelo ─────────────────────────────────────
-    // El arbol solo indexa la sinopsis por PALABRA COMPLETA (ver
-    // indexarCatalogo). Si la busqueda no encontro nada por esa via, puede
-    // ser una sub-cadena suelta dentro de la sinopsis (ej. "bar" dentro de
-    // "embarcaron"). Este caso final se resuelve con un escaneo en paralelo,
-    // que solo se paga cuando de verdad no hubo candidatos por el arbol.
     vector<Pelicula> porSustring = buscarSustringEnSinopsisParalelo(catalogo, tokensConsulta);
 
     static std::mt19937 generadorAleatorio2(std::random_device{}());
@@ -1198,10 +1024,6 @@ inline vector<Pelicula> buscarPorTextoConPrioridad(
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATRÓN FACTORY METHOD
-// BuscadorFactory crea el tipo de búsqueda sin poner if/else grandes en main.
-// ─────────────────────────────────────────────────────────────────────────────
 
 class Buscador {
 public:
@@ -1222,9 +1044,6 @@ public:
         const SuffixTree<int>& arbol,
         const string& consulta
     ) const override {
-        // Prioridad titulo (empieza-con / contiene) > sinopsis (aleatorio).
-        // Ahora SI usa el arbol como filtro rapido de candidatos: ver
-        // buscarPorTextoConPrioridad para el detalle del criterio.
         return buscarPorTextoConPrioridad(db, arbol, consulta);
     }
 };
@@ -1242,17 +1061,8 @@ public:
         const SuffixTree<int>& arbol,
         const string& consulta
     ) const override {
-        // El arbol ahora se usa como pre-filtro de candidatos dentro de
-        // buscarPorTag (ver comentario ahi), en vez de recorrer las ~34000
-        // peliculas del catalogo completo.
         vector<Pelicula> resultados = buscarPorTag(db, arbol, consulta, tipo);
 
-        // PATRON STRATEGY: la estrategia de ranking se elige segun el tipo
-        // de tag. Para busqueda por Anio tiene mas sentido ordenar por
-        // cercania/coincidencia de anio (RankingPorAnio) que por el
-        // conteo de palabras de texto libre (RankingPorRelevancia), que es
-        // la que se usa para Director/Actor/Genero. Ambas estrategias son
-        // 100% intercambiables gracias a ordenarConEstrategia().
         if (tipo == TipoTag::ANIO) {
             RankingPorAnio estrategia;
             return ordenarConEstrategia(resultados, consulta, estrategia);
@@ -1266,8 +1076,6 @@ public:
 
 class BuscadorFactory {
 public:
-    // 'tipo' solo se usa cuando esBusquedaPorTag es true; para busqueda por
-    // texto libre se ignora (BuscadorPorTexto usa el SuffixTree).
     static unique_ptr<Buscador> crearBuscador(bool esBusquedaPorTag, TipoTag tipo = TipoTag::GENERO) {
         if (esBusquedaPorTag) {
             return make_unique<BuscadorPorTag>(tipo);
