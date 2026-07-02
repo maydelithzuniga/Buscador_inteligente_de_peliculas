@@ -19,18 +19,6 @@ enum EstadoPantalla {
     PELICULAS_RECOMENDADA
 };
 
-// ── Menu Principal ────────────────────────────────────────────────────────────
-// Muestra:
-//   - "Ver mas tarde": SOLO si el usuario ya agrego alguna pelicula a esa
-//     lista. Si esta vacia, no se imprime ni el titulo de la seccion.
-//   - "Peliculas que te pueden interesar": recibe la lista de recomendadas ya
-//     calculada por main.cpp (obtenerPeliculasRecomendadas). Es DELIBERADO
-//     que no se recalcule aca adentro: si se recalculara por separado cada
-//     vez que se entra al menu Y cada vez que se entra a "Ver pelicula
-//     recomendada", cuando no hay likes el algoritmo cae al azar y ambas
-//     pantallas mostrarian listas distintas. Al pasar la misma lista ya
-//     calculada, "que te pueden interesar" y "recomendadas" son siempre
-//     exactamente las mismas peliculas.
 inline EstadoPantalla vistaMenuPrincipal(
     const std::unordered_map<int, Pelicula>& db,
     const std::vector<int>& verMasTarde,
@@ -82,9 +70,6 @@ inline EstadoPantalla vistaMenuPrincipal(
     }
 }
 
-// ── Buscar — rellena 'consulta', avisa si fue busqueda por tag y, de serlo,
-// tambien indica en 'tipoTag' cual campo especifico eligio el usuario
-// (Director, Actor, Genero o Anio). ────────────────────────────────────────────
 inline EstadoPantalla vistaBuscar(std::string& consulta, bool& buscarPorTag, TipoTag& tipoTag) {
     limpiarPantalla();
     std::cout << "========================================\n";
@@ -144,16 +129,10 @@ inline EstadoPantalla vistaBuscar(std::string& consulta, bool& buscarPorTag, Tip
     return RESULTADOS;
 }
 
-// ── Helper: verifica si un ID ya esta en una lista ─────────────────────────────
 inline bool contieneId(const std::vector<int>& lista, int id) {
     return std::find(lista.begin(), lista.end(), id) != lista.end();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATRÓN COMMAND
-// Cada acción del usuario se encapsula como un objeto comando.
-// Esto evita que la vista modifique directamente la lógica de Like/Ver más tarde.
-// ─────────────────────────────────────────────────────────────────────────────
 
 class ComandoUsuario {
 public:
@@ -180,9 +159,6 @@ public:
             likes.push_back(idPelicula);
         }
 
-        // Persistimos el estado actual de likes en likes.txt, para que
-        // sesiones futuras puedan usar este historial si el usuario todavia
-        // no dio like a nada en esa nueva sesion (ver obtenerPeliculasRecomendadas).
         guardarLikesEnArchivo(likes);
     }
 };
@@ -208,7 +184,6 @@ public:
     }
 };
 
-// ── Detalle de pelicula: sinopsis + Like + Ver mas tarde ──────────────────────
 inline void mostrarDetallePelicula(
     const Pelicula& p,
     std::vector<int>& likes,
@@ -280,15 +255,7 @@ inline void mostrarDetallePelicula(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATRÓN ITERATOR
-// Un iterador real (forward iterator): expone operator*, operator++ y
-// operator!=, sin exponer el vector interno ni el indice absoluto. Esto es
-// lo que permite recorrer la pagina actual con un range-for normal
-// (for (const auto& p : paginador) ...) igual que cualquier contenedor de
-// la STL, sin que el codigo cliente (la vista) sepa como esta almacenada
-// la coleccion por dentro.
-// ─────────────────────────────────────────────────────────────────────────────
+
 class ResultadosIterator {
 private:
     const std::vector<Pelicula>* resultados;
@@ -307,13 +274,7 @@ public:
     bool operator==(const ResultadosIterator& otro) const { return indice == otro.indice; }
 };
 
-// Encapsula el recorrido pagina a pagina sobre TODOS los resultados de una
-// busqueda. Antes 'top5' recortaba a 5 resultados y la vista nunca podia
-// mostrar mas alla de esa pagina. Ahora MotorBusqueda::ordenarPorRelevancia /
-// ordenarConEstrategia devuelven TODOS los resultados ordenados, y este
-// paginador expone begin()/end() (Iterator real) para recorrer SOLO la
-// pagina actual, de a 'tamPagina' en 'tamPagina', sin que la vista maneje
-// indices absolutos a mano.
+
 class ResultadosPaginador {
 private:
     const std::vector<Pelicula>& resultados;
@@ -350,7 +311,6 @@ public:
         return resultados[inicioPagina() + indiceRelativo];
     }
 
-    // ── Interfaz de Iterator: recorre SOLO la pagina actual ───────────────────
     ResultadosIterator begin() const {
         return ResultadosIterator(&resultados, static_cast<size_t>(inicioPagina()));
     }
@@ -360,7 +320,6 @@ public:
     }
 };
 
-// ── Resultados: recorre TODOS los resultados con ResultadosPaginador ──────────
 inline EstadoPantalla vistaResultados(
     const std::vector<Pelicula>& resultados,
     std::vector<int>& likes,
@@ -387,9 +346,6 @@ inline EstadoPantalla vistaResultados(
 
         int cantidad = paginador.cantidadEnPaginaActual();
 
-        // Recorrido con el Iterator real (begin()/end()) en vez de indices
-        // manuales: paginador expone solo la pagina actual, sin que esta
-        // vista sepa nada del vector completo de resultados.
         int numero = 1;
         for (const Pelicula& p : paginador) {
             std::cout << "  [" << numero++ << "] " << p.titulo << "\n";
@@ -401,11 +357,6 @@ inline EstadoPantalla vistaResultados(
                    << "  (" << resultados.size() << " resultados en total)\n";
         std::cout << "  [1-" << cantidad << "] Ver detalle\n";
 
-        // El rango maximo de opciones valido depende de si realmente hay
-        // pagina siguiente/anterior. Antes se pedia siempre "Opcion [0-7]"
-        // aunque solo hubiera 1 resultado sin mas paginas, lo cual era
-        // confuso/incorrecto. Ahora el limite superior se calcula segun lo
-        // que efectivamente se imprime en pantalla.
         int maxOpcion = cantidad;
 
         if (paginador.tieneSiguiente()) {
@@ -438,7 +389,6 @@ inline EstadoPantalla vistaResultados(
     }
 }
 
-// ── Ver Mas Tarde ─────────────────────────────────────────────────────────────
 inline EstadoPantalla vistaVerMasTarde(
     const std::vector<int>& verMasTarde,
     const std::unordered_map<int, Pelicula>& db,
@@ -474,7 +424,6 @@ inline EstadoPantalla vistaVerMasTarde(
     return MENU_PRINCIPAL;
 }
 
-// ── Peliculas con Like ────────────────────────────────────────────────────────
 inline EstadoPantalla vistaPeliculasLike(
     const std::vector<int>& likes,
     const std::unordered_map<int, Pelicula>& db
@@ -509,12 +458,6 @@ inline EstadoPantalla vistaPeliculasLike(
     return MENU_PRINCIPAL;
 }
 
-// ── Ver pelicula recomendada ─────────────────────────────────────────────────
-// Recibe la lista de recomendadas YA CALCULADA por main.cpp (la misma que se
-// mostro en "Peliculas que te pueden interesar" del menu principal, para que
-// ambas pantallas coincidan siempre). Permite seleccionar una pelicula para
-// ver su detalle completo (titulo, director, sinopsis, Like, Ver mas tarde),
-// igual que en Resultados.
 inline EstadoPantalla vistaPeliculasRecomendada(
     const std::vector<Pelicula>& recomendadas,
     std::vector<int>& likes,
