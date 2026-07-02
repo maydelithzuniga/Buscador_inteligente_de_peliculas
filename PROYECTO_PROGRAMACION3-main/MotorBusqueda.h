@@ -20,7 +20,6 @@
 using namespace std;
 using namespace std::chrono;
 
-// ── Índices de columnas del CSV de Wikipedia ──────────────────────────────────
 static constexpr int COL_ANIO      = 0;
 static constexpr int COL_TITULO    = 1;
 static constexpr int COL_DIRECTOR  = 3;
@@ -29,7 +28,6 @@ static constexpr int COL_GENERO    = 5;
 static constexpr int COL_SINOPSIS  = 7;
 
 
-// ── Estructura de película ────────────────────────────────────────────────────
 struct Pelicula {
     int id;
     string anio;
@@ -41,7 +39,6 @@ struct Pelicula {
 };
 
 
-// ── Parsear una línea CSV respetando comas dentro de comillas ─────────────────
 inline vector<string> parsearLinea(const string& linea) {
     vector<string> fila;
     string celda;
@@ -71,7 +68,6 @@ inline vector<string> parsearLinea(const string& linea) {
 }
 
 
-// ── Divide campos separados por coma: directores, actores, géneros ────────────
 inline vector<string> dividir(string& texto) {
     vector<string> fila;
     string celda;
@@ -110,7 +106,6 @@ inline vector<string> dividir(string& texto) {
 }
 
 
-// ── Limpieza: minúsculas + eliminar puntuación especial ───────────────────────
 inline string limpiar(string texto) {
     transform(texto.begin(), texto.end(), texto.begin(),
               [](unsigned char c) {
@@ -131,7 +126,6 @@ inline string limpiar(string texto) {
 }
 
 
-// ── Tokenización: divide string limpio en palabras ────────────────────────────
 inline vector<string> tokenizar(string texto) {
     texto = limpiar(texto);
 
@@ -149,7 +143,6 @@ inline vector<string> tokenizar(string texto) {
 }
 
 
-// ── Detecta si una línea empieza con un año: 4 dígitos + coma ─────────────────
 inline bool esInicioNuevaPelicula(const string& linea) {
     if (linea.size() < 5) {
         return false;
@@ -163,8 +156,6 @@ inline bool esInicioNuevaPelicula(const string& linea) {
 }
 
 
-// ── Carga el CSV y devuelve unordered_map<int, Pelicula> ──────────────────────
-// Programación paralela: divide las líneas completas entre varios hilos.
 inline unordered_map<int, Pelicula> cargarCSV(const string& ruta = "wiki_movie_plots_deduped_final.csv") {
     auto inic = high_resolution_clock::now();
 
@@ -244,10 +235,6 @@ inline unordered_map<int, Pelicula> cargarCSV(const string& ruta = "wiki_movie_p
             for (size_t j = inicio; j < fin; ++j) {
                 vector<string> fila = parsearLinea(lineasCompletas[j]);
 
-                // Ya no se descartan filas: limpiezadatos.h garantiza que
-                // cada fila tenga sus 8 columnas (rellenando con "" lo que
-                // falte), asi que aca solo queda el respaldo defensivo por
-                // si algo llegara igual con menos columnas de las esperadas.
                 Pelicula p;
 
                 p.id       = static_cast<int>(j);
@@ -292,8 +279,6 @@ inline unordered_map<int, Pelicula> cargarCSV(const string& ruta = "wiki_movie_p
 }
 
 
-// ── Búsqueda por token en título y sinopsis ───────────────────────────────────
-// Esta búsqueda queda como alternativa por recorrido paralelo.
 inline vector<Pelicula> buscarPorPalabra(
     const unordered_map<int, Pelicula>& catalogo,
     const string& consulta
