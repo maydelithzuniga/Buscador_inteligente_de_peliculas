@@ -10,13 +10,12 @@ template <typename T>
 struct NodoSufijo {
     std::unordered_map<char, std::shared_ptr<NodoSufijo<T>>> hijos;
     std::string etiqueta;
-    std::vector<T> items_ids; // Reemplaza a movie_ids
+    std::vector<T> items_ids; 
 
     NodoSufijo() = default;
     explicit NodoSufijo(const std::string& lbl) : etiqueta(lbl) {}
 };
 
-// ── Árbol de Sufijos Genérico ───────────────────────────────────────────────
 template <typename T>
 class SuffixTree {
 private:
@@ -25,7 +24,6 @@ private:
 public:
     SuffixTree() : raiz(std::make_shared<NodoSufijo<T>>()) {}
 
-    // Inserta una palabra asociándola a cualquier tipo de ID
     inline void insertar(const std::string& token, const T& id) {
         for (size_t i = 0; i < token.size(); ++i)
             _insertar(raiz, token.substr(i), id);
@@ -37,7 +35,6 @@ public:
         }
     }
 
-    // Devuelve los IDs de tipo T encontrados
     inline std::vector<T> buscar(const std::string& patron) const {
         std::vector<T> resultado;
         auto nodo = _navegar(raiz, patron);
