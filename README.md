@@ -5,17 +5,11 @@
 ---
 
 ## Integrantes
-
-| Integrante | Rol principal dentro del proyecto |
-|---|---|
-| Maydelith Zuñiga | Limpieza y preprocesamiento del CSV |
-| Joaquin Llallire | Flujo de vistas, menú e interacción por consola |
-| Adrián Gamboa | Motor de búsqueda, ranking y filtrado por tags |
-| Carlos Condor | Árbol de sufijos, documentación y análisis de complejidad |
-| Rodrigo Huertos | Pruebas, integración, rendimiento y presentación |
-
-> Nota: la participación final debe verificarse con el historial de commits de GitHub y con la exposición del equipo.
-
+Maydelith Zuñiga 
+Joaquin Llallire 
+Adrián Gamboa 
+Carlos Condor 
+Rodrigo Huertos 
 ---
 
 ## Índice
