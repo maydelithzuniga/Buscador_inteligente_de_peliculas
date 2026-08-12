@@ -1,5 +1,3 @@
-# Programación III: Proyecto Final
-
 # Netflix: Buscador inteligente de películas
 
 > Motor de búsqueda en **C++20** para consultar películas desde un dataset CSV de Wikipedia. El sistema permite buscar por palabra, frase, sub-palabra y tags; muestra resultados paginados, permite dar **Like**, guardar en **Ver más tarde** y generar recomendaciones simples a partir del historial del usuario.
